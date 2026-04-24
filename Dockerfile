@@ -15,7 +15,6 @@ COPY server/package.json ./server/package.json
 
 RUN npm ci
 
-COPY client ./client
 COPY server ./server
 
 RUN npm run build

@@ -14,7 +14,6 @@ import sanitizeFilename from 'sanitize-filename';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const clientDistPath = path.resolve(__dirname, '../client/dist');
 const bundledYtDlpPath = path.resolve(
   __dirname,
   process.platform === 'win32' ? './bin/yt-dlp.exe' : './bin/yt-dlp',
@@ -55,6 +54,18 @@ app.use(morgan('tiny'));
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/', (_req, res) => {
+  res.json({
+    name: 'DX Downloader API',
+    ok: true,
+    endpoints: {
+      health: '/api/health',
+      info: '/api/info',
+      download: '/api/download',
+    },
+  });
 });
 
 app.post('/api/info', async (req, res, next) => {
@@ -121,18 +132,6 @@ app.get('/api/download', async (req, res, next) => {
     next(error);
   }
 });
-
-if (await pathExists(clientDistPath)) {
-  app.use(express.static(clientDistPath));
-
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) {
-      return next();
-    }
-
-    return res.sendFile(path.join(clientDistPath, 'index.html'));
-  });
-}
 
 app.use((error, _req, res, _next) => {
   const message =

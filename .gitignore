@@ -5,3 +5,14 @@ npm-debug.log*
 .env
 server/bin/yt-dlp
 server/bin/yt-dlp.exe
+mobile/.dart_tool
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build
+mobile/android/.gradle
+mobile/android/local.properties
+mobile/android/app/debug
+mobile/android/app/profile
+mobile/android/app/release
+*.apk

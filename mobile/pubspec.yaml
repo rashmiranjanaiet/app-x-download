@@ -1,0 +1,25 @@
+name: dx_mobile
+description: Android Flutter client for the DX Downloader backend API.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.9
+  dio: ^5.9.2
+  open_filex: ^4.7.0
+  path_provider: ^2.1.5
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
