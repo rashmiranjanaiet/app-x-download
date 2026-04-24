@@ -74,12 +74,13 @@ app.get('/api/download', async (req, res, next) => {
   try {
     const url = normalizeUrl(req.query?.url);
     const mode = normalizeMode(req.query?.mode);
+    const quality = normalizeQuality(req.query?.quality);
 
     assertSupportedUrl(url);
 
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'frameflow-'));
     const outputTemplate = path.join(tempDir, '%(title).120B [%(id)s].%(ext)s');
-    const args = buildDownloadArgs({ url, mode, outputTemplate });
+    const args = buildDownloadArgs({ url, mode, quality, outputTemplate });
 
     await runYtDlp(args, downloadTimeoutMs);
 
@@ -148,7 +149,7 @@ app.use((error, _req, res, _next) => {
 });
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`FrameFlow server listening on port ${port}`);
+  console.log(`DX server listening on port ${port}`);
 });
 
 function normalizeUrl(value) {
@@ -160,11 +161,31 @@ function normalizeUrl(value) {
 }
 
 function normalizeMode(value) {
-  if (value === 'audio' || value === 'original' || value === 'video') {
+  if (value === 'audio' || value === 'video') {
     return value;
   }
 
   return 'video';
+}
+
+function normalizeQuality(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return 'best';
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (normalized === 'best') {
+    return 'best';
+  }
+
+  const parsedHeight = Number.parseInt(normalized, 10);
+
+  if (Number.isFinite(parsedHeight) && parsedHeight > 0) {
+    return String(parsedHeight);
+  }
+
+  return 'best';
 }
 
 function assertSupportedUrl(input) {
@@ -210,10 +231,11 @@ async function fetchVideoInfo(url) {
     previewMimeType: resolvePreviewMimeType(entry),
     previewWidth: resolvePreviewWidth(entry),
     previewHeight: resolvePreviewHeight(entry),
+    videoOptions: buildVideoOptions(entry),
   };
 }
 
-function buildDownloadArgs({ url, mode, outputTemplate }) {
+function buildDownloadArgs({ url, mode, quality, outputTemplate }) {
   const baseArgs = [
     '--no-playlist',
     '--no-progress',
@@ -238,14 +260,10 @@ function buildDownloadArgs({ url, mode, outputTemplate }) {
     ];
   }
 
-  if (mode === 'original') {
-    return [...baseArgs, '-f', 'best', url];
-  }
-
   return [
     ...baseArgs,
     '-f',
-    'bv*+ba/b',
+    buildVideoFormatSelector(quality),
     '--merge-output-format',
     'mp4',
     url,
@@ -313,7 +331,7 @@ async function findDownloadedFile(tempDir) {
 
 function buildDownloadName(filePath) {
   const parsed = path.parse(filePath);
-  const cleanBase = sanitizeFilename(parsed.name).trim() || 'frameflow-download';
+  const cleanBase = sanitizeFilename(parsed.name).trim() || 'dx-download';
   const cleanExt = parsed.ext || '';
 
   return `${cleanBase}${cleanExt}`;
@@ -321,7 +339,7 @@ function buildDownloadName(filePath) {
 
 function buildContentDisposition(filename) {
   const asciiName = filename.replace(/[^\x20-\x7E]/g, '').replace(/"/g, '');
-  return `attachment; filename="${asciiName || 'frameflow-download'}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  return `attachment; filename="${asciiName || 'dx-download'}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 function detectPlatform(url, extractor) {
@@ -478,6 +496,88 @@ function scorePreviewFormat(format) {
   }
 
   return score;
+}
+
+function buildVideoOptions(entry) {
+  const heights = collectVideoHeights(entry);
+
+  if (!heights.length) {
+    return [];
+  }
+
+  const maxHeight = heights[0];
+  const midHeight = heights[Math.floor(heights.length / 2)];
+  const lowHeight = heights[heights.length - 1];
+  const options = [];
+
+  options.push(createVideoOption('max', 'Max', maxHeight));
+
+  if (midHeight !== maxHeight && midHeight !== lowHeight) {
+    options.push(createVideoOption('mid', 'Mid', midHeight));
+  }
+
+  if (lowHeight !== maxHeight) {
+    options.push(createVideoOption('low', 'Low', lowHeight));
+  }
+
+  return options;
+}
+
+function createVideoOption(key, label, height) {
+  return {
+    key,
+    label,
+    quality: String(height.qualityHeight),
+    height: height.displayHeight,
+    displayLabel: `${label} ${height.displayHeight}p`,
+  };
+}
+
+function collectVideoHeights(entry) {
+  const candidates = Array.isArray(entry.formats) ? entry.formats : [];
+  const uniqueHeights = new Map();
+
+  for (const format of candidates) {
+    if (!format) {
+      continue;
+    }
+
+    const hasVideo = format.vcodec && format.vcodec !== 'none';
+    const qualityHeight = Number(format.height) || 0;
+
+    if (!hasVideo || qualityHeight <= 0) {
+      continue;
+    }
+
+    const width = Number(format.width) || qualityHeight;
+    const displayHeight = Math.min(width, qualityHeight) || qualityHeight;
+    const existing = uniqueHeights.get(displayHeight);
+
+    if (!existing || qualityHeight > existing.qualityHeight) {
+      uniqueHeights.set(displayHeight, {
+        displayHeight,
+        qualityHeight,
+      });
+    }
+  }
+
+  return [...uniqueHeights.values()].sort(
+    (left, right) => right.displayHeight - left.displayHeight,
+  );
+}
+
+function buildVideoFormatSelector(quality) {
+  if (quality === 'best') {
+    return 'bv*+ba/b';
+  }
+
+  const parsedHeight = Number.parseInt(quality, 10);
+
+  if (!Number.isFinite(parsedHeight) || parsedHeight <= 0) {
+    return 'bv*+ba/b';
+  }
+
+  return `bv*[height<=${parsedHeight}]+ba/b[height<=${parsedHeight}]/b[height<=${parsedHeight}]`;
 }
 
 function truncate(value, length) {

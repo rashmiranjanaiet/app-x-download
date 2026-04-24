@@ -1,86 +1,30 @@
 import { useEffect, useState } from 'react';
 
-const actionCards = [
-  {
-    key: 'video',
-    eyebrow: 'Best playback',
-    title: 'Video download',
-    detail: 'Merged video and audio with an MP4-first workflow for fast playback.',
-  },
-  {
-    key: 'audio',
-    eyebrow: 'Audio conversion',
-    title: 'MP3 export',
-    detail: 'Great for podcasts, music references, interviews, and voice notes.',
-  },
-  {
-    key: 'original',
-    eyebrow: 'Source quality',
-    title: 'Original format',
-    detail: 'Keeps the source container when you want the untouched upload.',
-  },
-];
-
-const featureCards = [
-  {
-    title: 'No database required',
-    detail: 'Each request is processed on demand with ephemeral temp storage and nothing is persisted after download.',
-  },
-  {
-    title: 'Built for fast link handling',
-    detail: 'Paste a public URL, inspect the title and thumbnail, then trigger the format you need from one screen.',
-  },
-  {
-    title: 'Render-ready deployment',
-    detail: 'Docker, health checks, and a single-service setup make it straightforward to ship on Render.',
-  },
-];
-
-const statLabels = [
-  { key: 'platform', label: 'Platform' },
-  { key: 'uploader', label: 'Creator' },
-  { key: 'duration', label: 'Duration' },
-  { key: 'uploadDate', label: 'Published' },
-  { key: 'viewCount', label: 'Views' },
-];
-
 function App() {
   const [url, setUrl] = useState('');
   const [details, setDetails] = useState(null);
   const [error, setError] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
-  const [downloadingMode, setDownloadingMode] = useState('');
-  const [notice, setNotice] = useState('');
+  const [downloadingKey, setDownloadingKey] = useState('');
   const [previewFailed, setPreviewFailed] = useState(false);
-
-  useEffect(() => {
-    if (!notice) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => {
-      setNotice('');
-    }, 5000);
-
-    return () => window.clearTimeout(timer);
-  }, [notice]);
+  const [activeMode, setActiveMode] = useState('video');
 
   useEffect(() => {
     setPreviewFailed(false);
+    setActiveMode('video');
   }, [details?.previewUrl]);
 
   async function handleAnalyze(event) {
     event.preventDefault();
     setError('');
-    setNotice('');
-    setDetails(null);
 
     if (!url.trim()) {
-      setError('Paste a YouTube or Instagram video link to continue.');
+      setError('Paste a YouTube or Instagram link.');
       return;
     }
 
     setAnalyzing(true);
+    setDetails(null);
 
     try {
       const response = await fetch('/api/info', {
@@ -94,11 +38,10 @@ function App() {
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.message || 'Unable to inspect that link.');
+        throw new Error(payload.message || 'Unable to load that link.');
       }
 
       setDetails(payload);
-      setNotice('Link processed successfully. Choose the output you want.');
     } catch (requestError) {
       setError(getFriendlyErrorMessage(requestError));
     } finally {
@@ -106,19 +49,25 @@ function App() {
     }
   }
 
-  async function handleDownload(mode) {
+  async function handleDownload({ mode, quality, key }) {
     if (!details) {
       return;
     }
 
     setError('');
-    setNotice('');
-    setDownloadingMode(mode);
+    setDownloadingKey(key);
 
     try {
-      const response = await fetch(
-        `/api/download?url=${encodeURIComponent(details.url)}&mode=${encodeURIComponent(mode)}`,
-      );
+      const params = new URLSearchParams({
+        url: details.url,
+        mode,
+      });
+
+      if (mode === 'video' && quality) {
+        params.set('quality', quality);
+      }
+
+      const response = await fetch(`/api/download?${params.toString()}`);
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -128,213 +77,234 @@ function App() {
       const blob = await response.blob();
       const objectUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
-      const filename = extractFilename(response.headers.get('content-disposition'), details.title, mode);
+      const filename = extractFilename(
+        response.headers.get('content-disposition'),
+        details.title,
+        mode,
+      );
 
       anchor.href = objectUrl;
       anchor.download = filename;
       anchor.click();
-
       window.URL.revokeObjectURL(objectUrl);
-      setNotice(`Your ${mode} file is ready.`);
     } catch (requestError) {
       setError(getFriendlyErrorMessage(requestError));
     } finally {
-      setDownloadingMode('');
+      setDownloadingKey('');
     }
   }
 
+  const isPortrait = Boolean(
+    details?.previewHeight &&
+    details?.previewWidth &&
+    details.previewHeight > details.previewWidth,
+  );
+
+  const metaItems = details ? buildMetaItems(details) : [];
+
   return (
-    <div className="app-shell">
+    <div className="dx-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <div className="ambient ambient-three" />
 
-      <main className="page">
-        <section className="hero">
-          <div className="hero-copy">
-            <span className="eyebrow">FrameFlow</span>
-            <h1>Transform video links into ready-to-use downloads in seconds.</h1>
-            <p className="lede">
-              A polished, no-database web app for public YouTube and Instagram video links.
-              Preview the title and thumbnail instantly, then download the best video,
-              export MP3 audio, or keep the original format.
-            </p>
-
-            <div className="hero-badges">
-              <span>Dark premium UI</span>
-              <span>YouTube + Instagram</span>
-              <span>Render-ready</span>
+      <main className="dx-page">
+        <header className="topbar">
+          <div className="brand-block">
+            <span className="brand-mark">DX</span>
+            <div>
+              <p className="overline">DX Downloader</p>
+              <h1>Paste link. Preview. Download.</h1>
             </div>
           </div>
+          <span className="topbar-badge">Mobile ready</span>
+        </header>
 
-          <div className="hero-panel glass-card">
-            <div className="panel-header">
-              <div>
-                <span className="panel-label">Quick processor</span>
-                <h2>Paste a public video link</h2>
-              </div>
-              <span className="status-dot" />
-            </div>
-
-            <form className="processor-form" onSubmit={handleAnalyze}>
-              <label className="field-label" htmlFor="video-url">
-                Video URL
-              </label>
-              <input
-                id="video-url"
-                className="link-input"
-                type="url"
-                placeholder="https://www.youtube.com/watch?v=... or https://www.instagram.com/reel/..."
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                autoComplete="off"
-              />
-              <button className="primary-button" type="submit" disabled={analyzing}>
-                {analyzing ? 'Inspecting link...' : 'Analyze link'}
-              </button>
-            </form>
-
-            <p className="helper-text">
-              Use only content you own or have permission to download. Private, restricted,
-              or region-locked posts may not be available.
-            </p>
-          </div>
+        <section className="glass-card composer-card">
+          <form className="composer-form" onSubmit={handleAnalyze}>
+            <input
+              className="link-input"
+              type="url"
+              placeholder="Paste YouTube or Instagram link"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              autoComplete="off"
+            />
+            <button className="primary-button" type="submit" disabled={analyzing}>
+              {analyzing ? 'Loading...' : 'Open'}
+            </button>
+          </form>
         </section>
 
-        {(error || notice) && (
-          <section className="message-stack">
-            {error ? <div className="message error">{error}</div> : null}
-            {notice ? <div className="message success">{notice}</div> : null}
-          </section>
-        )}
+        {error ? <div className="message error">{error}</div> : null}
 
-        <section className="feature-grid">
-          {featureCards.map((feature) => (
-            <article className="glass-card feature-card" key={feature.title}>
-              <h3>{feature.title}</h3>
-              <p>{feature.detail}</p>
-            </article>
-          ))}
-        </section>
-
-        <section className="workspace-grid">
-          <article className="glass-card preview-card">
-            <div className="card-headline">
-              <div>
-                <span className="panel-label">Preview</span>
-                <h2>Video details</h2>
-              </div>
-              {details ? <span className="platform-badge">{details.platform}</span> : null}
+        <section className="glass-card viewer-card">
+          {analyzing ? (
+            <div className="preview-skeleton" aria-hidden="true">
+              <div className="skeleton-thumb" />
+              <div className="skeleton-line large" />
+              <div className="skeleton-line" />
             </div>
-
-            {analyzing ? (
-              <div className="preview-skeleton" aria-hidden="true">
-                <div className="skeleton-thumb" />
-                <div className="skeleton-line large" />
-                <div className="skeleton-line" />
-                <div className="skeleton-grid">
-                  <div className="skeleton-pill" />
-                  <div className="skeleton-pill" />
-                  <div className="skeleton-pill" />
-                  <div className="skeleton-pill" />
+          ) : details ? (
+            <>
+              <div className="viewer-head">
+                <div>
+                  <span className="platform-pill">{details.platform}</span>
+                  <h2>{details.title}</h2>
                 </div>
+                {details.duration ? (
+                  <span className="duration-pill">{formatDuration(details.duration)}</span>
+                ) : null}
               </div>
-            ) : details ? (
-              <div className="preview-content">
-                <div className="thumbnail-wrap">
-                  {details.previewUrl && !previewFailed ? (
-                    <video
-                      key={details.previewUrl}
-                      className="preview-video"
-                      controls
-                      playsInline
-                      preload="metadata"
-                      poster={details.thumbnail || undefined}
-                      onError={() => setPreviewFailed(true)}
-                    >
-                      <source
-                        src={details.previewUrl}
-                        type={details.previewMimeType || 'video/mp4'}
-                      />
-                    </video>
-                  ) : details.thumbnail ? (
-                    <img src={details.thumbnail} alt={details.title} className="thumbnail" />
-                  ) : (
-                    <div className="thumbnail-fallback">
-                      <span>No thumbnail</span>
-                    </div>
-                  )}
+
+              <div className={`player-shell ${isPortrait ? 'portrait' : ''}`}>
+                {details.previewUrl && !previewFailed ? (
+                  <video
+                    key={details.previewUrl}
+                    className="preview-video"
+                    controls
+                    playsInline
+                    preload="metadata"
+                    poster={details.thumbnail || undefined}
+                    onError={() => setPreviewFailed(true)}
+                  >
+                    <source
+                      src={details.previewUrl}
+                      type={details.previewMimeType || 'video/mp4'}
+                    />
+                  </video>
+                ) : details.thumbnail ? (
+                  <img src={details.thumbnail} alt={details.title} className="thumbnail" />
+                ) : (
+                  <div className="thumbnail-fallback">
+                    <span>No preview</span>
+                  </div>
+                )}
+              </div>
+
+              {metaItems.length ? (
+                <div className="meta-row">
+                  {metaItems.map((item) => (
+                    <span className="meta-pill" key={item.label}>
+                      <strong>{item.label}</strong>
+                      <span>{item.value}</span>
+                    </span>
+                  ))}
                 </div>
+              ) : null}
 
-                <div className="metadata-block">
-                  <h3>{details.title}</h3>
-                  <p className="metadata-description">
-                    {details.description || 'The clip is ready to download or convert using one of the quick actions on the right.'}
-                  </p>
-                </div>
-
-                <dl className="stats-grid">
-                  {statLabels.map((item) => {
-                    const value = formatDetail(item.key, details[item.key]);
-
-                    if (!value) {
-                      return null;
-                    }
-
-                    return (
-                      <div className="stat-card" key={item.key}>
-                        <dt>{item.label}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    );
-                  })}
-                </dl>
-              </div>
-            ) : (
-              <div className="empty-state">
-                <p>Analyze a supported link to preview the title, thumbnail, creator, and timing details.</p>
-              </div>
-            )}
-          </article>
-
-          <aside className="glass-card action-panel">
-            <div className="card-headline">
-              <div>
-                <span className="panel-label">Output options</span>
-                <h2>Download or convert</h2>
-              </div>
-            </div>
-
-            <div className="action-list">
-              {actionCards.map((card) => (
+              <div className="mode-switch">
                 <button
-                  key={card.key}
-                  className="action-card"
-                  disabled={!details || Boolean(downloadingMode)}
-                  onClick={() => handleDownload(card.key)}
+                  className={activeMode === 'video' ? 'mode-button active' : 'mode-button'}
+                  onClick={() => setActiveMode('video')}
                   type="button"
                 >
-                  <span className="action-eyebrow">{card.eyebrow}</span>
-                  <strong>{card.title}</strong>
-                  <span>{card.detail}</span>
-                  <span className="action-cta">
-                    {downloadingMode === card.key ? 'Preparing file...' : 'Start'}
-                  </span>
+                  Video
                 </button>
-              ))}
-            </div>
+                <button
+                  className={activeMode === 'audio' ? 'mode-button active' : 'mode-button'}
+                  onClick={() => setActiveMode('audio')}
+                  type="button"
+                >
+                  Audio
+                </button>
+              </div>
 
-            <div className="mini-note">
-              <p>
-                Large files can take longer to prepare, especially on lower-tier Render plans.
-                This build is tuned for quick, public-link workflows.
-              </p>
+              {activeMode === 'video' ? (
+                <div className="download-grid">
+                  {details.videoOptions?.length ? (
+                    details.videoOptions.map((option) => {
+                      const optionKey = `video-${option.key}`;
+
+                      return (
+                        <button
+                          className="download-card"
+                          key={option.key}
+                          onClick={() =>
+                            handleDownload({
+                              mode: 'video',
+                              quality: option.quality,
+                              key: optionKey,
+                            })
+                          }
+                          disabled={Boolean(downloadingKey)}
+                          type="button"
+                        >
+                          <span className="download-tag">{option.label}</span>
+                          <strong>{option.height}p</strong>
+                          <span>
+                            {downloadingKey === optionKey ? 'Preparing...' : 'Download MP4'}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <button
+                      className="download-card"
+                      onClick={() =>
+                        handleDownload({
+                          mode: 'video',
+                          quality: 'best',
+                          key: 'video-best',
+                        })
+                      }
+                      disabled={Boolean(downloadingKey)}
+                      type="button"
+                    >
+                      <span className="download-tag">Video</span>
+                      <strong>Best</strong>
+                      <span>{downloadingKey === 'video-best' ? 'Preparing...' : 'Download MP4'}</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="download-grid">
+                  <button
+                    className="download-card"
+                    onClick={() =>
+                      handleDownload({
+                        mode: 'audio',
+                        key: 'audio-mp3',
+                      })
+                    }
+                    disabled={Boolean(downloadingKey)}
+                    type="button"
+                  >
+                    <span className="download-tag">Audio</span>
+                    <strong>MP3</strong>
+                    <span>{downloadingKey === 'audio-mp3' ? 'Preparing...' : 'Download MP3'}</span>
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="empty-state">
+              <h2>Ready</h2>
+              <p>Paste a link to load the video preview and download options.</p>
             </div>
-          </aside>
+          )}
         </section>
       </main>
     </div>
   );
+}
+
+function buildMetaItems(details) {
+  const items = [];
+
+  if (details.uploader) {
+    items.push({ label: 'By', value: details.uploader });
+  }
+
+  if (details.uploadDate) {
+    items.push({ label: 'Date', value: details.uploadDate });
+  }
+
+  if (details.viewCount) {
+    items.push({ label: 'Views', value: Number(details.viewCount).toLocaleString() });
+  }
+
+  return items;
 }
 
 function extractFilename(contentDisposition, title, mode) {
@@ -352,36 +322,16 @@ function extractFilename(contentDisposition, title, mode) {
     }
   }
 
-  const safeTitle = (title || 'frameflow-download')
+  const safeTitle = (title || 'dx-download')
     .replace(/[\\/:*?"<>|]+/g, '')
     .trim()
     .slice(0, 120);
 
   if (mode === 'audio') {
-    return `${safeTitle || 'frameflow-download'}.mp3`;
+    return `${safeTitle || 'dx-download'}.mp3`;
   }
 
-  if (mode === 'video') {
-    return `${safeTitle || 'frameflow-download'}.mp4`;
-  }
-
-  return safeTitle || 'frameflow-download';
-}
-
-function formatDetail(key, value) {
-  if (value === null || value === undefined || value === '') {
-    return '';
-  }
-
-  if (key === 'duration') {
-    return formatDuration(value);
-  }
-
-  if (key === 'viewCount') {
-    return Number(value).toLocaleString();
-  }
-
-  return value;
+  return `${safeTitle || 'dx-download'}.mp4`;
 }
 
 function formatDuration(totalSeconds) {
@@ -393,26 +343,23 @@ function formatDuration(totalSeconds) {
 
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  const remainingSeconds = seconds % 60;
+  const remainingSeconds = Math.floor(seconds % 60);
 
   if (hours > 0) {
-    return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
   }
 
-  return `${minutes}m ${String(remainingSeconds).padStart(2, '0')}s`;
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 }
 
 function getFriendlyErrorMessage(error) {
   const message = error instanceof Error ? error.message : String(error || '');
 
-  if (
-    error instanceof TypeError ||
-    message.toLowerCase().includes('failed to fetch')
-  ) {
-    return 'The app could not reach the backend API. Make sure the server is running on port 3001, then refresh and try again.';
+  if (error instanceof TypeError || message.toLowerCase().includes('failed to fetch')) {
+    return 'DX could not reach the server. Refresh and try again.';
   }
 
-  return message || 'Something went wrong while processing the link.';
+  return message || 'Something went wrong.';
 }
 
 export default App;
