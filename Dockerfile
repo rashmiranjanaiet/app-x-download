@@ -2,10 +2,13 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
+ARG YTDLP_VERSION=2026.03.17
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates python3 \
-  && curl -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o /usr/local/bin/yt-dlp \
+  && curl -L "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" -o /usr/local/bin/yt-dlp \
   && chmod +x /usr/local/bin/yt-dlp \
+  && /usr/local/bin/yt-dlp --version \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
