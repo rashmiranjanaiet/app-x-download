@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: app-x-download-api
+    runtime: docker
+    plan: free
+    region: singapore
+    autoDeployTrigger: commit
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DOWNLOAD_TIMEOUT_MS
+        value: 1500000
+      - key: METADATA_TIMEOUT_MS
+        value: 90000

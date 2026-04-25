@@ -1,0 +1,5 @@
+{
+  "apiBaseUrl": "https://app-x-download-api.onrender.com",
+  "updatedAt": "2026-04-25T02:00:00Z",
+  "notes": "This should match the public Render service URL from render.yaml. If Render gives you a different hostname, update this file and push again."
+}
