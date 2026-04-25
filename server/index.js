@@ -25,6 +25,13 @@ const ytDlpPath = process.env.YTDLP_PATH || ((await pathExists(bundledYtDlpPath)
 const ffmpegPath = process.env.FFMPEG_PATH || ffmpegStatic || 'ffmpeg';
 const downloadTimeoutMs = Number(process.env.DOWNLOAD_TIMEOUT_MS) || 25 * 60 * 1000;
 const metadataTimeoutMs = Number(process.env.METADATA_TIMEOUT_MS) || 90 * 1000;
+const instagramCookiePathEnvKeys = ['INSTAGRAM_COOKIES_PATH', 'YTDLP_COOKIES_PATH'];
+const instagramInlineCookieEnvKeys = ['INSTAGRAM_COOKIES', 'YTDLP_COOKIES'];
+const instagramBase64CookieEnvKeys = ['INSTAGRAM_COOKIES_BASE64', 'YTDLP_COOKIES_BASE64'];
+const defaultInstagramCookieFilePath = path.join(__dirname, 'instagram-cookies.txt');
+const instagramDesktopUserAgent =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36';
+const instagramCookieFilePromise = resolveInstagramCookieFile();
 
 const supportedHosts = [
   'youtube.com',
@@ -91,9 +98,13 @@ app.get('/api/download', async (req, res, next) => {
 
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'frameflow-'));
     const outputTemplate = path.join(tempDir, '%(title).120B [%(id)s].%(ext)s');
-    const args = buildDownloadArgs({ url, mode, quality, outputTemplate });
+    const authArgs = await buildSiteAuthArgs(url);
+    const args = buildDownloadArgs({ url, mode, quality, outputTemplate, authArgs });
 
-    await runYtDlp(args, downloadTimeoutMs);
+    await runYtDlp(args, downloadTimeoutMs, {
+      url,
+      authenticated: authArgs.includes('--cookies'),
+    });
 
     const downloadedFile = await findDownloadedFile(tempDir);
     const stats = await fs.stat(downloadedFile);
@@ -149,6 +160,7 @@ app.use((error, _req, res, _next) => {
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`DX server listening on port ${port}`);
+  void logInstagramAccessMode();
 });
 
 function normalizeUrl(value) {
@@ -204,9 +216,11 @@ function assertSupportedUrl(input) {
 }
 
 async function fetchVideoInfo(url) {
+  const authArgs = await buildSiteAuthArgs(url);
   const { stdout } = await runYtDlp(
-    ['--dump-single-json', '--skip-download', '--no-playlist', '--no-warnings', url],
+    [...authArgs, '--dump-single-json', '--skip-download', '--no-playlist', '--no-warnings', url],
     metadataTimeoutMs,
+    { url, authenticated: authArgs.includes('--cookies') },
   );
 
   const parsed = JSON.parse(stdout);
@@ -234,8 +248,9 @@ async function fetchVideoInfo(url) {
   };
 }
 
-function buildDownloadArgs({ url, mode, quality, outputTemplate }) {
+function buildDownloadArgs({ url, mode, quality, outputTemplate, authArgs = [] }) {
   const baseArgs = [
+    ...authArgs,
     '--no-playlist',
     '--no-progress',
     '--newline',
@@ -269,7 +284,7 @@ function buildDownloadArgs({ url, mode, quality, outputTemplate }) {
   ];
 }
 
-async function runYtDlp(args, timeoutMs) {
+async function runYtDlp(args, timeoutMs, context = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(ytDlpPath, args, {
       env: process.env,
@@ -312,9 +327,129 @@ async function runYtDlp(args, timeoutMs) {
         return;
       }
 
-      reject(new Error(cleanYtError(stderr || stdout)));
+      reject(new Error(cleanYtError(stderr || stdout, context)));
     });
   });
+}
+
+async function buildSiteAuthArgs(url) {
+  if (!isInstagramUrl(url)) {
+    return [];
+  }
+
+  const args = [
+    '--add-header',
+    `User-Agent:${instagramDesktopUserAgent}`,
+    '--add-header',
+    'Referer:https://www.instagram.com/',
+    '--add-header',
+    'Origin:https://www.instagram.com',
+  ];
+  const cookieFilePath = await instagramCookieFilePromise;
+
+  if (cookieFilePath) {
+    args.push('--cookies', cookieFilePath);
+  }
+
+  return args;
+}
+
+async function resolveInstagramCookieFile() {
+  const configuredPath = readEnvSetting(instagramCookiePathEnvKeys);
+
+  if (configuredPath) {
+    const resolvedPath = path.resolve(configuredPath.value);
+
+    if (!(await pathExists(resolvedPath))) {
+      throw new Error(`Instagram cookies path from ${configuredPath.key} was not found on the server.`);
+    }
+
+    return resolvedPath;
+  }
+
+  if (await pathExists(defaultInstagramCookieFilePath)) {
+    return defaultInstagramCookieFilePath;
+  }
+
+  const encodedCookies = readEnvSetting(instagramBase64CookieEnvKeys);
+  const inlineCookies = readEnvSetting(instagramInlineCookieEnvKeys);
+  const source = encodedCookies || inlineCookies;
+
+  if (!source) {
+    return '';
+  }
+
+  const content = encodedCookies
+    ? Buffer.from(source.value, 'base64').toString('utf8')
+    : source.value;
+  const normalized = normalizeCookieFileContent(content);
+
+  if (!normalized) {
+    throw new Error(`Instagram cookies from ${source.key} were empty.`);
+  }
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dx-instagram-cookies-'));
+  const cookieFilePath = path.join(tempDir, 'instagram-cookies.txt');
+  await fs.writeFile(cookieFilePath, normalized, 'utf8');
+
+  return cookieFilePath;
+}
+
+function normalizeCookieFileContent(content) {
+  const normalized = content.replace(/\r\n/g, '\n').trim();
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.startsWith('#')) {
+    return `${normalized}\n`;
+  }
+
+  return `# Netscape HTTP Cookie File\n${normalized}\n`;
+}
+
+function readEnvSetting(keys) {
+  for (const key of keys) {
+    const value = process.env[key];
+
+    if (typeof value === 'string' && value.trim()) {
+      return {
+        key,
+        value: value.trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
+function isInstagramUrl(value) {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+
+    return host === 'instagram.com' || host.endsWith('.instagram.com');
+  } catch {
+    return false;
+  }
+}
+
+async function logInstagramAccessMode() {
+  try {
+    const cookieFilePath = await instagramCookieFilePromise;
+
+    if (cookieFilePath) {
+      console.log('Instagram authenticated requests are enabled.');
+      return;
+    }
+
+    console.warn('Instagram guest mode is enabled. Some reels may require server cookies.');
+  } catch (error) {
+    console.warn(
+      `Instagram cookies could not be initialized: ${error instanceof Error ? error.message : 'Unknown error.'}`,
+    );
+  }
 }
 
 async function findDownloadedFile(tempDir) {
@@ -373,7 +508,24 @@ function formatUploadDate(value) {
   }).format(date);
 }
 
-function cleanYtError(message) {
+function cleanYtError(message, context = {}) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    isInstagramUrl(context.url || '') &&
+    (
+      normalizedMessage.includes('login required') ||
+      normalizedMessage.includes('rate-limit') ||
+      normalizedMessage.includes('--cookies-from-browser') ||
+      normalizedMessage.includes('--cookies') ||
+      normalizedMessage.includes('requested content is not available')
+    )
+  ) {
+    return context.authenticated
+      ? 'Instagram rejected this reel even with the configured server session. Refresh the Instagram cookies on the server and try again.'
+      : 'Instagram blocked guest access for this reel. Add valid Instagram cookies on the server and try again.';
+  }
+
   const lines = message
     .split('\n')
     .map((line) => line.trim())
@@ -601,6 +753,10 @@ function resolveStatusCode(message) {
 
   if (normalized.includes('timed out')) {
     return 504;
+  }
+
+  if (normalized.includes('instagram blocked guest access')) {
+    return 503;
   }
 
   return 500;

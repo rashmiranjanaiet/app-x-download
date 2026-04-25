@@ -8,9 +8,13 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+const embeddedReleaseApiBaseUrl = 'https://app-x-download-api.onrender.com';
+
 const defaultApiBaseUrl = String.fromEnvironment(
   'DX_API_BASE_URL',
-  defaultValue: kReleaseMode ? '' : 'http://10.0.2.2:3001',
+  defaultValue: kReleaseMode
+      ? embeddedReleaseApiBaseUrl
+      : 'http://10.0.2.2:3001',
 );
 const defaultBackendConfigUrl = String.fromEnvironment(
   'DX_BACKEND_CONFIG_URL',
@@ -87,13 +91,28 @@ class _DxHomePageState extends State<DxHomePage> {
 
   Future<void> _restoreApiBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    final storedBaseUrl = (prefs.getString(storageKey) ?? '').trim();
     final resolvedSharedBaseUrl = await _resolveSharedApiBaseUrl();
+
+    if (kReleaseMode) {
+      await prefs.remove(storageKey);
+      apiController.text = resolvedSharedBaseUrl;
+      if (mounted) {
+        setState(() {
+          sharedApiBaseUrl = resolvedSharedBaseUrl;
+          loading = false;
+          if (resolvedSharedBaseUrl.isEmpty && error.isEmpty) {
+            error =
+                'DX is not configured correctly right now. Install the latest app build and try again.';
+          }
+        });
+      }
+      return;
+    }
+
+    final storedBaseUrl = (prefs.getString(storageKey) ?? '').trim();
     final useStoredBaseUrl =
         storedBaseUrl.isNotEmpty &&
-        !(kReleaseMode &&
-            resolvedSharedBaseUrl.isNotEmpty &&
-            _isLocalBaseUrl(storedBaseUrl));
+        !(resolvedSharedBaseUrl.isNotEmpty && _isLocalBaseUrl(storedBaseUrl));
     final initialBaseUrl = useStoredBaseUrl
         ? storedBaseUrl
         : resolvedSharedBaseUrl;
@@ -107,10 +126,6 @@ class _DxHomePageState extends State<DxHomePage> {
       setState(() {
         sharedApiBaseUrl = resolvedSharedBaseUrl;
         loading = false;
-        if (kReleaseMode && initialBaseUrl.isEmpty && error.isEmpty) {
-          error =
-              'DX is not configured with a public server yet. Deploy the backend and update mobile/backend-config.json, or enter a working backend URL below.';
-        }
       });
     }
   }
@@ -352,7 +367,7 @@ class _DxHomePageState extends State<DxHomePage> {
                           Text(
                             Platform.isAndroid
                                 ? (kReleaseMode
-                                      ? 'This APK can use one shared public DX server for everyone after the backend is deployed. You can still override the backend URL below.'
+                                      ? 'Paste a YouTube or Instagram link and DX will handle the rest.'
                                       : 'Flutter Android app. Use 10.0.2.2 for the emulator or your computer LAN IP for a real device.')
                                 : 'Flutter mobile app for the DX backend API.',
                             style: const TextStyle(color: Color(0xFFC8BFD8)),
@@ -364,50 +379,16 @@ class _DxHomePageState extends State<DxHomePage> {
                     _panel(
                       child: Column(
                         children: [
-                          TextField(
-                            controller: apiController,
-                            decoration: _input(
-                              'Backend URL',
-                              kReleaseMode
-                                  ? 'Shared public backend will appear here'
-                                  : 'http://10.0.2.2:3001',
+                          if (!kReleaseMode) ...[
+                            TextField(
+                              controller: apiController,
+                              decoration: _input(
+                                'Backend URL',
+                                'http://10.0.2.2:3001',
+                              ),
                             ),
-                          ),
-                          if (kReleaseMode && sharedApiBaseUrl.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _sameBaseUrl(
-                                          apiController.text,
-                                          sharedApiBaseUrl,
-                                        )
-                                        ? 'Using the shared DX public server.'
-                                        : 'A shared DX public server is available for all users.',
-                                    style: const TextStyle(
-                                      color: Color(0xFFC8BFD8),
-                                    ),
-                                  ),
-                                ),
-                                if (!_sameBaseUrl(
-                                  apiController.text,
-                                  sharedApiBaseUrl,
-                                ))
-                                  TextButton(
-                                    onPressed: _useSharedServer,
-                                    child: const Text('Use shared server'),
-                                  ),
-                              ],
-                            ),
-                          ] else if (kReleaseMode) ...[
-                            const SizedBox(height: 8),
-                            const Text(
-                              'No shared DX public server is configured yet.',
-                              style: TextStyle(color: Color(0xFFC8BFD8)),
-                            ),
+                            const SizedBox(height: 12),
                           ],
-                          const SizedBox(height: 12),
                           TextField(
                             controller: linkController,
                             minLines: 2,
@@ -872,10 +853,10 @@ class _DxHomePageState extends State<DxHomePage> {
           err.type == DioExceptionType.connectionTimeout ||
           err.type == DioExceptionType.receiveTimeout) {
         if (kReleaseMode && _normalizedSharedApiBaseUrl.isEmpty) {
-          return 'DX is not configured with a public server yet. Deploy the backend and update mobile/backend-config.json, or enter a working backend URL.';
+          return 'DX is not configured correctly right now. Install the latest app build and try again.';
         }
         return kReleaseMode
-            ? 'DX could not reach the shared public server. Check that the hosted backend is live, or enter a working backend URL.'
+            ? 'DX could not reach the server right now. Check your internet connection and try again.'
             : 'DX could not reach the server. Check the backend URL and try again.';
       }
     }

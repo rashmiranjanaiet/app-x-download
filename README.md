@@ -60,6 +60,18 @@ YTDLP_PATH=yt-dlp
 FFMPEG_PATH=ffmpeg
 ```
 
+For Instagram reels that require authentication, the server also supports:
+
+```bash
+INSTAGRAM_COOKIES_PATH=/absolute/path/to/instagram-cookies.txt
+```
+
+or a full Netscape cookie file passed inline:
+
+```bash
+INSTAGRAM_COOKIES_BASE64=<base64-encoded-cookie-file>
+```
+
 ## Flutter app setup
 
 The Flutter project lives in `mobile/`.
@@ -107,6 +119,24 @@ Update `mobile/backend-config.json` like this and push it to GitHub:
 
 After that, release APKs built from this repo can auto-load the shared public backend URL from GitHub, so every user can use the same server without being on your Wi-Fi. If Render assigns a different hostname, update `mobile/backend-config.json` to match it and push again.
 
+### Instagram reels that need login
+
+Instagram sometimes blocks guest extraction even for public reels. The backend now supports a server-side cookie file so those reels can keep working.
+
+For local development, put a Netscape cookie file at `server/instagram-cookies.txt` or point `INSTAGRAM_COOKIES_PATH` at it.
+
+For Render:
+
+1. Export an Instagram cookie file in Netscape format from a browser where Instagram is logged in.
+2. Base64-encode that cookie file.
+3. Add `INSTAGRAM_COOKIES_BASE64` in the Render service settings.
+4. Redeploy the service.
+
+If your Render service already exists, add the variable manually in the dashboard. Render only prompts for `sync: false` secrets during the first Blueprint creation flow.
+
+See the yt-dlp FAQ for cookie export details:
+https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
+
 ## Build the APK
 
 From `mobile/`:
@@ -148,6 +178,7 @@ docker run -p 3001:10000 dx-backend
 
 - Only process content you own or have permission to download.
 - Public Instagram and YouTube links work best. Private, age-restricted, or region-locked content may fail.
+- Some Instagram reels now require a logged-in browser session on the backend. Configure `INSTAGRAM_COOKIES_BASE64` on Render if those reels fail.
 - The Android app needs a reachable backend URL.
 - For public use by everyone, deploy the backend to a public host such as Render and publish that URL in `mobile/backend-config.json`.
 - `10.0.2.2` only works inside the Android emulator.

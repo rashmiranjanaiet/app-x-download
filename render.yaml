@@ -17,3 +17,5 @@ services:
         value: 1500000
       - key: METADATA_TIMEOUT_MS
         value: 90000
+      - key: INSTAGRAM_COOKIES_BASE64
+        sync: false
